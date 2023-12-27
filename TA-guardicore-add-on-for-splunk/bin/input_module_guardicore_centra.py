@@ -165,7 +165,7 @@ def collect_connections(helper, ew, headers):
         from_event = 0
         to_event = min(LIMIT, total_count)
         while (total_count + LIMIT - 1) >= to_event:
-            parameters.update({"from": from_event, "limit": LIMIT})
+            parameters.update({"offset": from_event, "limit": LIMIT})
             connections = _get_data(helper, "connections", headers=headers, parameters=parameters)["objects"]
             for conn in connections:
                 conn["data_type"] = "connection"
@@ -197,7 +197,7 @@ def collect_reputation_alerts(helper, ew, headers):
         from_event = 0
         to_event = min(LIMIT, total_count)
         while (total_count + LIMIT - 1) >= to_event:
-            parameters.update({"from": from_event, "limit": LIMIT})
+            parameters.update({"offset": from_event, "limit": LIMIT})
             alerts = _get_data(helper, "reputation-log", headers=headers, parameters=parameters)["objects"]
             for alert in alerts:
                 alert["data_type"] = "reputation_alert"
