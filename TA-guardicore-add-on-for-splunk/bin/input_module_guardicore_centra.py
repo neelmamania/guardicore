@@ -11,7 +11,7 @@ import traceback
 
 
 LIMIT = 1000
-
+VERIFY=False
 
 def validate_input(helper, definition):
     """Implement your own validation logic to validate the input stanza configurations"""
@@ -39,7 +39,7 @@ def _get_data(helper, endpoint, method="GET", parameters=None, headers={}, paylo
         headers.update({"Content-Type": "application/json"})
     
     try:
-        response = helper.send_http_request(url=url, method=method, headers=headers, parameters=parameters, payload=payload, use_proxy=use_proxy, verify=False, timeout=timeout)
+        response = helper.send_http_request(url=url, method=method, headers=headers, parameters=parameters, payload=payload, use_proxy=use_proxy, verify=VERIFY, timeout=timeout)
         
         if response.status_code == 200:
             try:

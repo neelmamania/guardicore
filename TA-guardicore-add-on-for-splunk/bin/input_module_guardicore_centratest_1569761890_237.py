@@ -10,7 +10,7 @@ import calendar
 
 
 LIMIT = 1000
-
+VERIFY=False
 
 def validate_input(helper, definition):
     """Implement your own validation logic to validate the input stanza configurations"""
@@ -37,7 +37,7 @@ def _get_data(helper, endpoint, method="GET", parameters=None, headers={}, paylo
         headers.update({"Content-Type": "application/json"})
     
     try:
-        response = helper.send_http_request(url=url, method=method, headers=headers, parameters=parameters, payload=payload, use_proxy=use_proxy, verify=False)
+        response = helper.send_http_request(url=url, method=method, headers=headers, parameters=parameters, payload=payload, use_proxy=use_proxy, verify=VERIFY)
         return response.json()
     except Exception as e:
         helper.log_critical("Failed getting data from REST API") 
