@@ -22,7 +22,7 @@ import os.path as op
 import threading
 import time
 import traceback
-from typing import Any, Callable, List
+from typing import Callable, List
 
 __all__ = ["FileChangesChecker", "FileMonitor"]
 
@@ -30,7 +30,7 @@ __all__ = ["FileChangesChecker", "FileMonitor"]
 class FileChangesChecker:
     """Files change checker."""
 
-    def __init__(self, callback: Callable[[List[str]], Any], files: List):
+    def __init__(self, callback: Callable, files: List):
         """Initializes FileChangesChecker.
 
         Arguments:
@@ -45,7 +45,7 @@ class FileChangesChecker:
             try:
                 self.file_mtimes[k] = op.getmtime(k)
             except OSError:
-                logging.debug(f"Getmtime for {k}, failed: {traceback.format_exc()}")
+                logging.debug("Getmtime for %s, failed: %s", k, traceback.format_exc())
 
     def check_changes(self) -> bool:
         """Check files change.
@@ -56,7 +56,8 @@ class FileChangesChecker:
         Returns:
             True if files changed else False
         """
-        logging.debug(f"Checking files={self._files}")
+
+        logging.debug("Checking files=%s", self._files)
         file_mtimes = self.file_mtimes
         changed_files = []
         for f, last_mtime in list(file_mtimes.items()):
@@ -65,9 +66,10 @@ class FileChangesChecker:
                 if current_mtime != last_mtime:
                     file_mtimes[f] = current_mtime
                     changed_files.append(f)
-                    logging.info(f"Detect {f} has changed", f)
+                    logging.info("Detect %s has changed", f)
             except OSError:
                 pass
+
         if changed_files:
             if self._callback:
                 self._callback(changed_files)
@@ -87,9 +89,7 @@ class FileMonitor:
       >>> fm.start()
     """
 
-    def __init__(
-        self, callback: Callable[[List[str]], Any], files: List, interval: int = 1
-    ):
+    def __init__(self, callback: Callable, files: List, interval: int = 1):
         """Initializes FileMonitor.
 
         Arguments:

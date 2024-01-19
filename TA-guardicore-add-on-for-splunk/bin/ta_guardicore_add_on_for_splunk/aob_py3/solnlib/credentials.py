@@ -18,10 +18,8 @@
 
 import json
 import re
-import warnings
-from typing import Dict, List
 
-from splunklib import binding, client
+from splunklib import binding
 
 from . import splunk_rest_client as rest_client
 from .net_utils import validate_scheme_host_port
@@ -81,7 +79,7 @@ class CredentialManager:
         port: int = None,
         **context: dict,
     ):
-        """Initializes CredentialManager.
+        """Initializes CredentialsManager.
 
         Arguments:
             session_key: Splunk access token.
@@ -125,11 +123,9 @@ class CredentialManager:
                                                   realm='realm_test')
            >>> cm.get_password('testuser2')
         """
-        if self._realm is not None:
-            passwords = self.get_clear_passwords_in_realm()
-        else:
-            passwords = self.get_clear_passwords()
-        for password in passwords:
+
+        all_passwords = self._get_all_passwords()
+        for password in all_passwords:
             if password["username"] == user and password["realm"] == self._realm:
                 return password["clear_password"]
 
@@ -155,9 +151,7 @@ class CredentialManager:
         length = 0
         index = 1
         while length < len(password):
-            curr_str = password[
-                length : length + self.SPLUNK_CRED_LEN_LIMIT  # noqa: E203
-            ]
+            curr_str = password[length : length + self.SPLUNK_CRED_LEN_LIMIT]
             partial_user = self.SEP.join([user, str(index)])
             self._update_password(partial_user, curr_str)
             length += self.SPLUNK_CRED_LEN_LIMIT
@@ -186,16 +180,14 @@ class CredentialManager:
             self._storage_passwords.create(password, user, self._realm)
         except binding.HTTPError as ex:
             if ex.status == 409:
-                if self._realm is not None:
-                    passwords = self.get_raw_passwords_in_realm()
-                else:
-                    passwords = self.get_raw_passwords()
-                for pwd_stanza in passwords:
+                all_passwords = self._get_all_passwords_in_realm()
+                for pwd_stanza in all_passwords:
                     if pwd_stanza.realm == self._realm and pwd_stanza.username == user:
                         pwd_stanza.update(password=password)
                         return
                 raise ValueError(
-                    f"Can not get the password object for realm: {self._realm} user: {user}"
+                    "Can not get the password object for realm: %s user: %s"
+                    % (self._realm, user)
                 )
             else:
                 raise ex
@@ -217,15 +209,12 @@ class CredentialManager:
                                                   realm='realm_test')
            >>> cm.delete_password('testuser1')
         """
-        if self._realm is not None:
-            passwords = self.get_raw_passwords_in_realm()
-        else:
-            passwords = self.get_raw_passwords()
+        all_passwords = self._get_all_passwords_in_realm()
         deleted = False
         ent_pattern = re.compile(
             r"({}{}\d+)".format(user.replace("\\", "\\\\"), self.SEP)
         )
-        for password in passwords:
+        for password in list(all_passwords):
             match = (user == password.username) or ent_pattern.match(password.username)
             if match and password.realm == self._realm:
                 password.delete()
@@ -233,45 +222,12 @@ class CredentialManager:
 
         if not deleted:
             raise CredentialNotExistException(
-                f"Failed to delete password of realm={self._realm}, user={user}"
+                "Failed to delete password of realm={}, user={}".format(
+                    self._realm, user
+                )
             )
 
-    def get_raw_passwords(self) -> List[client.StoragePassword]:
-        """Returns all passwords in the "raw" format."""
-        warnings.warn(
-            "Please pass realm to the CredentialManager, "
-            "so it can utilize get_raw_passwords_in_realm method instead."
-        )
-        return self._storage_passwords.list(count=-1)
-
-    def get_raw_passwords_in_realm(self) -> List[client.StoragePassword]:
-        """Returns all passwords within the realm in the "raw" format."""
-        if self._realm is None:
-            raise ValueError("No realm was specified")
-        return self._storage_passwords.list(count=-1, search=f"realm={self._realm}")
-
-    def get_clear_passwords(self) -> List[Dict[str, str]]:
-        """Returns all passwords in the "clear" format."""
-        warnings.warn(
-            "Please pass realm to the CredentialManager, "
-            "so it can utilize get_clear_passwords_in_realm method instead."
-        )
-        raw_passwords = self.get_raw_passwords()
-        return self._get_clear_passwords(raw_passwords)
-
-    def get_clear_passwords_in_realm(self) -> List[Dict[str, str]]:
-        """Returns all passwords within the realm in the "clear" format."""
-        if self._realm is None:
-            raise ValueError("No realm was specified")
-        raw_passwords = self.get_raw_passwords_in_realm()
-        return self._get_clear_passwords(raw_passwords)
-
-    def _get_all_passwords_in_realm(self) -> List[client.StoragePassword]:
-        warnings.warn(
-            "_get_all_passwords_in_realm is deprecated, "
-            "please use get_raw_passwords_in_realm instead.",
-            stacklevel=2,
-        )
+    def _get_all_passwords_in_realm(self):
         if self._realm:
             all_passwords = self._storage_passwords.list(
                 count=-1, search=f"realm={self._realm}"
@@ -280,12 +236,13 @@ class CredentialManager:
             all_passwords = self._storage_passwords.list(count=-1, search="")
         return all_passwords
 
-    def _get_clear_passwords(
-        self, passwords: List[client.StoragePassword]
-    ) -> List[Dict[str, str]]:
+    @retry(exceptions=[binding.HTTPError])
+    def _get_all_passwords(self):
+        all_passwords = self._storage_passwords.list(count=-1)
+
         results = {}
-        ptn = re.compile(rf"(.+){self.SEP}(\d+)")
-        for password in passwords:
+        ptn = re.compile(fr"(.+){self.SEP}(\d+)")
+        for password in all_passwords:
             match = ptn.match(password.name)
             if match:
                 actual_name = match.group(1) + ":"
@@ -304,7 +261,7 @@ class CredentialManager:
 
         # Backward compatibility
         # To deal with the password with only one stanza which is generated by the old version.
-        for password in passwords:
+        for password in all_passwords:
             match = ptn.match(password.name)
             if (not match) and (password.name not in results):
                 results[password.name] = {
@@ -329,16 +286,6 @@ class CredentialManager:
                 del values["clears"]
 
         return list(results.values())
-
-    @retry(exceptions=[binding.HTTPError])
-    def _get_all_passwords(self) -> List[Dict[str, str]]:
-        warnings.warn(
-            "_get_all_passwords is deprecated, "
-            "please use get_all_passwords_in_realm instead.",
-            stacklevel=2,
-        )
-        passwords = self._storage_passwords.list(count=-1)
-        return self._get_clear_passwords(passwords)
 
 
 @retry(exceptions=[binding.HTTPError])
@@ -368,7 +315,7 @@ def get_session_key(
         ValueError: if scheme, host or port are invalid.
 
     Examples:
-       >>> get_session_key('user', 'password')
+       >>> credentials.get_session_key('user', 'password')
     """
     validate_scheme_host_port(scheme, host, port)
 

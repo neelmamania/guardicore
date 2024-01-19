@@ -10,7 +10,7 @@ import calendar
 
 
 LIMIT = 1000
-VERIFY=False
+VERIFY=True
 
 def validate_input(helper, definition):
     """Implement your own validation logic to validate the input stanza configurations"""
