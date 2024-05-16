@@ -142,43 +142,66 @@ def collect_dashboard_health_status(helper, ew, headers):
 
 def _get_timestamps(key, helper):
     conn_aggr_time = int(helper.get_arg("connection_aggregation_time"))
-    from_time = helper.get_check_point(key)
+    format_key = "{}_{}".format(helper.get_arg("name"), key)
+
+    prev_time = helper.get_check_point(key)
+    from_time = helper.get_check_point(format_key)
+
+    if prev_time is not None:
+        helper.delete_check_point(key)
+        helper.log_info("Removing previous timestamp key: {}".format(key))
+        from_time = prev_time
+
     if from_time is None:
         from_time = str(datetime_to_timestamp(datetime.datetime.utcnow() - 3*datetime.timedelta(minutes=conn_aggr_time)))
-    to_time = str(datetime_to_timestamp(datetime.datetime.utcnow() - 2*datetime.timedelta(minutes=conn_aggr_time)))
+        helper.save_check_point(format_key, from_time)
+    to_time = str(datetime_to_timestamp(datetime.datetime.utcnow()))
+
+    helper.log_info("Retrieve data from_time: {}, to_time: {}".format(
+        datetime.datetime.fromtimestamp(int(from_time) / 1000).strftime('%Y-%m-%d %H:%M:%S'),
+        datetime.datetime.fromtimestamp(int(to_time) / 1000).strftime('%Y-%m-%d %H:%M:%S')
+    ))
+
     return from_time, to_time
 
 def collect_connections(helper, ew, headers):
     helper.log_debug("starting to collect connections")
 
     from_time, to_time = _get_timestamps("prev_timestamp_c", helper)
-    helper.save_check_point("prev_timestamp_c", to_time)
 
-    parameters = dict(policy_verdict="blocked,alerted_by_management", from_time=from_time, to_time=to_time, sort="-slot_start_time")
+    parameters = dict(policy_verdict="blocked,alerted_by_management", from_time=from_time, to_time=to_time, sort="slot_start_time")
     if helper.get_arg("collect_allowed_connections"):
         parameters.pop("policy_verdict")
     
     total_count = _get_data(helper, "connections", headers=headers, parameters=parameters).get("total_count")
     helper.log_debug("found {} new connections".format(total_count))
 
-    if total_count:
-        from_event = 0
-        to_event = min(LIMIT, total_count)
-        while (total_count + LIMIT - 1) >= to_event:
-            parameters.update({"offset": from_event, "limit": LIMIT})
-            connections = _get_data(helper, "connections", headers=headers, parameters=parameters)["objects"]
-            for conn in connections:
-                conn["data_type"] = "connection"
-                conn["rule_display_name"] = "RUL-{}".format(conn["policy_rule"][:8])
-                if conn["policy_verdict"] in ["blocked_by_source", "blocked_by_destination"] :
-                    conn["verdict"] = "blocked"
-                elif conn["policy_verdict"].startswith("alerted"):
-                    conn["verdict"] = "alerted"
-                else:
+    if not total_count:
+        helper.log_info("no new connections found")
+        return
+
+    from_event = 0
+    max_slot_start_time = 0
+    to_event = min(LIMIT, total_count)
+    while (total_count + LIMIT - 1) >= to_event:
+        parameters.update({"offset": from_event, "limit": LIMIT})
+        connections = _get_data(helper, "connections", headers=headers, parameters=parameters)["objects"]
+
+        for conn in connections:
+            conn["data_type"] = "connection"
+            conn["rule_display_name"] = "RUL-{}".format(conn["policy_rule"][:8])
+            if conn["policy_verdict"] in ["blocked_by_source", "blocked_by_destination"] :
+                conn["verdict"] = "blocked"
+            elif conn["policy_verdict"].startswith("alerted"):
+                conn["verdict"] = "alerted"
+            else:
                     conn["verdict"] = "allowed"
-                _write_event(helper, ew, conn)
-            from_event = to_event
-            to_event += LIMIT
+            max_slot_start_time = max(int(conn["slot_start_time"]), max_slot_start_time)
+            _write_event(helper, ew, conn)
+
+        helper.save_check_point("{}_prev_timestamp_c".format(helper.get_arg("name")), max_slot_start_time + 1000)
+        from_event = to_event
+        to_event += LIMIT
 
     helper.log_debug("finished collecting connections")
 
@@ -186,24 +209,31 @@ def collect_connections(helper, ew, headers):
 def collect_reputation_alerts(helper, ew, headers):
     helper.log_debug("starting to collect reputation alerts")
     from_time, to_time = _get_timestamps("prev_timestamp_r", helper)
-    helper.save_check_point("prev_timestamp_r", to_time)
 
-    parameters = dict(response="malicious", from_time=from_time, to_time=to_time, sort="-request_time")
+    parameters = dict(response="malicious", from_time=from_time, to_time=to_time, sort="request_time")
 
     total_count = _get_data(helper, "reputation-log", headers=headers, parameters=parameters).get("total_count")
     helper.log_debug("found {} new reputation alerts".format(total_count))
 
-    if total_count:
-        from_event = 0
-        to_event = min(LIMIT, total_count)
-        while (total_count + LIMIT - 1) >= to_event:
-            parameters.update({"offset": from_event, "limit": LIMIT})
-            alerts = _get_data(helper, "reputation-log", headers=headers, parameters=parameters)["objects"]
-            for alert in alerts:
-                alert["data_type"] = "reputation_alert"
-                _write_event(helper, ew, alert)
-            from_event = to_event
-            to_event += LIMIT
+    if not total_count:
+        helper.log_info("no reputation alerts found")
+        return
+
+    from_event = 0
+    max_request_time = 0
+    to_event = min(LIMIT, total_count)
+    while (total_count + LIMIT - 1) >= to_event:
+        parameters.update({"offset": from_event, "limit": LIMIT})
+        alerts = _get_data(helper, "reputation-log", headers=headers, parameters=parameters)["objects"]
+
+        for alert in alerts:
+            alert["data_type"] = "reputation_alert"
+            max_request_time = max(int(alert["request_time"]), max_request_time)
+            _write_event(helper, ew, alert)
+
+        helper.save_check_point("{}_prev_timestamp_r".format(helper.get_arg("name")), max_request_time + 1000)
+        from_event = to_event
+        to_event += LIMIT
 
     helper.log_debug("finished collecting reputation alerts")
     
