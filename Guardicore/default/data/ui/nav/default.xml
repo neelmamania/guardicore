@@ -1,0 +1,5 @@
+<nav search_view="search" color="#B266FF">
+  <view name="incidents" default='true' />
+  <view name="security_incidents" />
+  <view name="health" />
+</nav>

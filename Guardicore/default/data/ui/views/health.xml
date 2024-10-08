@@ -1,0 +1,235 @@
+<form stylesheet="custom_decorations.css" version="1.1">
+  <label>System Health</label>
+  <search>
+    <query>index="$input_index$" data_type = hosts_storage | chart latest(is_ok) as storage_ok, latest(count) as count| eval resources_status = if(storage_ok=="true", "OK", "Error") | rangemap field=count none=-10--1 low=0-0 severe=1-100 default=none</query>
+    <earliest>-60m@m</earliest>
+    <latest>now</latest>
+    <refresh>10m</refresh>
+    <refreshType>delay</refreshType>
+    <progress>
+      <set token="storage_value1">$result.resources_status$</set>
+      <set token="storage_range1">$result.range$</set>
+    </progress>
+  </search>
+  <search>
+    <query>index="$input_index$" data_type = mgmt_memory | chart latest(is_ok) as is_ok, latest(count) as count | eval resources_status = if(is_ok=="true", "OK", "Error") | rangemap field=count none=-10--1 low=0-0 severe=1-100 default=none</query>
+    <earliest>-24h@h</earliest>
+    <latest>now</latest>
+    <refresh>10m</refresh>
+    <refreshType>delay</refreshType>
+    <progress>
+      <set token="mem_value1">$result.resources_status$</set>
+      <set token="mem_range1">$result.range$</set>
+    </progress>
+  </search>
+  <search>
+    <query>
+index="$input_index$" data_type=hosts_storage | stats latest(mgmt_ip) as mgmt_ip, latest(mgmt_port) as mgmt_port | eval mgmt_ip=mgmt_ip, mgmt_port=mgmt_port | table mgmt_ip, mgmt_port
+   </query>
+    <preview>
+      <set token="mgmt_ip">$result.mgmt_ip$</set>
+      <set token="mgmt_port">$result.mgmt_port$</set>
+    </preview>
+  </search>
+  <fieldset submitButton="false" autoRun="true">
+    <input type="dropdown" token="input_index" searchWhenChanged="true">
+      <label>Index</label>
+      <fieldForLabel>index</fieldForLabel>
+      <fieldForValue>index</fieldForValue>
+      <search>
+        <query>| rest /servicesNS/-/-/admin/macros count=0 splunk_server=local 
+| search title="guardicore_index"
+| rex field=definition ".*\((?&lt;index&gt;.*)\)"
+| table index
+| makemv delim="," index 
+| mvexpand index
+| dedup index
+| sort 0  index</query>
+        <earliest>-4h@m</earliest>
+        <latest>now</latest>
+      </search>
+      <default>guardicore</default>
+    </input>
+  </fieldset>
+  <row>
+    <panel>
+      <title>Management Storage</title>
+      <html>
+          <div class="custom-result-value $storage_range1$">$storage_value1$</div>
+      </html>
+    </panel>
+    <panel>
+      <title>Management Memory</title>
+      <html>
+          <div class="custom-result-value $mem_range1$">$mem_value1$</div>
+        </html>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <title>Agent Errors</title>
+      <single>
+        <search>
+          <query>index="$input_index$" data_type = component_overview component_type = agents | chart latest(count) as problem_count </query>
+          <earliest>-60m@m</earliest>
+          <latest>now</latest>
+          <refresh>10m</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="colorMode">none</option>
+        <option name="drilldown">all</option>
+        <option name="height">139</option>
+        <option name="numberPrecision">0</option>
+        <option name="rangeColors">["0x50c878", "0xfee12b","0xf1813f", "0xff6961"]</option>
+        <option name="rangeValues">[30,60,90]</option>
+        <option name="refresh.display">progressbar</option>
+        <option name="useColors">1</option>
+        <drilldown>
+          <eval token="u">replace($row.url$, "https://", ""</eval>
+          <link target="_blank">
+            <![CDATA[https://$mgmt_ip$:$mgmt_port$/overview/inventory/agents/agents]]>
+          </link>
+        </drilldown>
+      </single>
+    </panel>
+    <panel>
+      <title>Aggregator Errors</title>
+      <single>
+        <search>
+          <query>index="$input_index$" data_type = component_overview component_type = aggregators | chart latest(count) as problem_count</query>
+          <earliest>-60m@m</earliest>
+          <latest>now</latest>
+          <refresh>10m</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="colorMode">none</option>
+        <option name="drilldown">all</option>
+        <option name="height">139</option>
+        <option name="numberPrecision">0</option>
+        <option name="rangeColors">["0x50c878", "0xfee12b","0xf1813f", "0xff6961"]</option>
+        <option name="rangeValues">[30,60,90]</option>
+        <option name="refresh.display">progressbar</option>
+        <option name="useColors">1</option>
+        <drilldown>
+          <eval token="u">replace($row.url$, "https://", ""</eval>
+          <link target="_blank">
+            <![CDATA[https://$mgmt_ip$:$mgmt_port$/administration/components/agent-aggregators]]>
+          </link>
+        </drilldown>
+      </single>
+    </panel>
+    <panel depends="$coll_panel_show$">
+      <title>Collector Errors</title>
+      <single>
+        <search>
+          <query>index="$input_index$" data_type = component_overview component_type = collectors | chart latest(problem_count) as problem_count</query>
+          <earliest>-60m@m</earliest>
+          <latest>now</latest>
+          <refresh>10m</refresh>
+          <refreshType>delay</refreshType>
+          <progress>
+            <condition match="'result.problem_count' &gt; 0">
+              <set token="coll_panel_show">true</set>
+            </condition>
+            <condition>
+              <unset token="coll_panel_show"></unset>
+            </condition>
+          </progress>
+        </search>
+        <option name="colorMode">none</option>
+        <option name="drilldown">all</option>
+        <option name="height">139</option>
+        <option name="numberPrecision">0</option>
+        <option name="rangeColors">["0x50c878","0xfee12b","0xf1813f","0xff6961"]</option>
+        <option name="rangeValues">[30,60,90]</option>
+        <option name="refresh.display">progressbar</option>
+        <option name="useColors">1</option>
+        <drilldown>
+          <eval token="u">replace($row.url$, "https://", ""</eval>
+          <link target="_blank">
+            <![CDATA[https://$mgmt_ip$:$mgmt_port$/administration/components/collectors]]>
+          </link>
+        </drilldown>
+      </single>
+    </panel>
+    <panel depends="$hp_panel_show$">
+      <title>Deception Server Errors</title>
+      <single>
+        <search>
+          <query>index="$input_index$" data_type = component_overview component_type = deception | chart latest(count) as problem_count </query>
+          <earliest>-60m@m</earliest>
+          <latest>now</latest>
+          <refresh>10m</refresh>
+          <refreshType>delay</refreshType>
+          <progress>
+            <condition match="'result.problem_count' &gt; 0">
+              <set token="hp_panel_show">true</set>
+            </condition>
+            <condition>
+              <unset token="hp_panel_show"></unset>
+            </condition>
+          </progress>
+        </search>
+        <option name="colorMode">none</option>
+        <option name="drilldown">all</option>
+        <option name="height">139</option>
+        <option name="numberPrecision">0</option>
+        <option name="rangeColors">["0x50c878", "0xfee12b","0xf1813f", "0xff6961"]</option>
+        <option name="rangeValues">[0,5,10]</option>
+        <option name="refresh.display">progressbar</option>
+        <option name="useColors">1</option>
+        <drilldown>
+          <eval token="u">replace($row.url$, "https://", ""</eval>
+          <link target="_blank">
+            <![CDATA[https://$mgmt_ip$:$mgmt_port$/administration/components/deception-servers]]>
+          </link>
+        </drilldown>
+      </single>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <title>Agents Error Flags</title>
+      <chart>
+        <search>
+          <query>index="$input_index$" data_type = agent_flags| stats latest(count) as agent_count by flag | sort -agent_count</query>
+          <earliest>-60m@m</earliest>
+          <latest>now</latest>
+          <refresh>10m</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="charting.axisLabelsX.majorLabelStyle.overflowMode">ellipsisMiddle</option>
+        <option name="charting.axisLabelsX.majorLabelStyle.rotation">45</option>
+        <option name="charting.axisTitleX.visibility">collapsed</option>
+        <option name="charting.axisTitleY.visibility">collapsed</option>
+        <option name="charting.axisY.scale">log</option>
+        <option name="charting.chart">column</option>
+        <option name="charting.drilldown">none</option>
+        <option name="charting.legend.placement">none</option>
+        <option name="charting.seriesColors">[0x6EB5FF]</option>
+        <option name="height">303</option>
+        <option name="refresh.display">progressbar</option>
+      </chart>
+    </panel>
+    <panel>
+      <title>Components Status</title>
+      <chart>
+        <search>
+          <query>index="$input_index$" data_type = component_status | dedup component_type, status | chart sum(count) as component_count by status</query>
+          <earliest>-60m@m</earliest>
+          <latest>now</latest>
+        </search>
+        <option name="charting.axisLabelsX.majorLabelStyle.overflowMode">ellipsisMiddle</option>
+        <option name="charting.axisLabelsX.majorLabelStyle.rotation">45</option>
+        <option name="charting.axisTitleX.visibility">collapsed</option>
+        <option name="charting.axisTitleY.visibility">collapsed</option>
+        <option name="charting.chart">column</option>
+        <option name="charting.drilldown">none</option>
+        <option name="charting.legend.placement">none</option>
+        <option name="charting.seriesColors">[0x6EB5FF]</option>
+        <option name="height">303</option>
+        <option name="refresh.display">progressbar</option>
+      </chart>
+    </panel>
+  </row>
+</form>

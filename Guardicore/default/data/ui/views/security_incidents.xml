@@ -1,0 +1,318 @@
+<form version="1.1">
+  <search>
+    <query>
+index="$input_index$" data_type=hosts_storage | stats latest(mgmt_ip) as mgmt_ip, latest(mgmt_port) as mgmt_port | eval mgmt_ip=mgmt_ip, mgmt_port=mgmt_port | table mgmt_ip, mgmt_port
+   </query>
+    <preview>
+      <set token="mgmt_ip">$result.mgmt_ip$</set>
+      <set token="mgmt_port">$result.mgmt_port$</set>
+    </preview>
+  </search>
+  <label>Incidents</label>
+  <search>
+    <query> | makeresults | addinfo | table info_* </query>
+    <earliest>$time_filter.earliest$</earliest>
+    <latest>$time_filter.latest$</latest>
+    <progress>
+      <eval token="from_time">strptime(strftime($result.info_min_time$,"%Y/%m/%d %H:%M:%S.%Q"), "%Y/%m/%d %H:%M:%S.%Q")*1000</eval>
+      <eval token="to_time">strptime(strftime($result.info_max_time$,"%Y/%m/%d %H:%M:%S.%Q"), "%Y/%m/%d %H:%M:%S.%Q")*1000</eval>
+    </progress>
+  </search>
+  <fieldset submitButton="false">
+    <input type="time" token="time_filter">
+      <label></label>
+      <default>
+        <earliest>-24h@h</earliest>
+        <latest>now</latest>
+      </default>
+    </input>
+    <input type="multiselect" token="incident_type" searchWhenChanged="true">
+      <label>Incident Type</label>
+      <choice value="* Incident">ANY</choice>
+      <choice value="Reveal Incident">Reveal</choice>
+      <choice value="Deception Incident">Deception</choice>
+      <choice value="Network Scan Incident">Network Scan</choice>
+      <choice value="FIM Incident">FIM</choice>
+      <default>* Incident</default>
+      <valuePrefix>signature_id="</valuePrefix>
+      <valueSuffix>"</valueSuffix>
+      <delimiter> OR </delimiter>
+    </input>
+    <input type="multiselect" token="severity" searchWhenChanged="true">
+      <label>Incident Severity</label>
+      <choice value="high">High</choice>
+      <choice value="medium">Medium</choice>
+      <choice value="low">Low</choice>
+      <choice value="*">ANY</choice>
+      <default>*</default>
+      <valuePrefix>vendor_severity="</valuePrefix>
+      <valueSuffix>"</valueSuffix>
+      <delimiter> OR </delimiter>
+    </input>
+    <input type="multiselect" token="tag" searchWhenChanged="true">
+      <label>Tags</label>
+      <choice value="*">ANY</choice>
+      <delimiter>  OR </delimiter>
+      <fieldForLabel>IncidentTags</fieldForLabel>
+      <fieldForValue>IncidentTags</fieldForValue>
+      <search>
+        <query>index="$input_index$" $incident_type$ $severity$ | makemv delim="," IncidentTags | top 1000 IncidentTags</query>
+      </search>
+      <valuePrefix>IncidentTags="*</valuePrefix>
+      <valueSuffix>*"</valueSuffix>
+      <default>*</default>
+    </input>
+    <input type="dropdown" token="top_count" searchWhenChanged="true">
+      <label>Show Top</label>
+      <choice value="10">10</choice>
+      <choice value="25">25</choice>
+      <choice value="50">50</choice>
+      <choice value="100">100</choice>
+      <choice value="1000">1000</choice>
+      <default>10</default>
+    </input>
+    <input type="dropdown" token="input_index" searchWhenChanged="true">
+      <label>Index</label>
+      <fieldForLabel>index</fieldForLabel>
+      <fieldForValue>index</fieldForValue>
+      <search>
+        <query>| rest /servicesNS/-/-/admin/macros count=0 splunk_server=local 
+| search title="guardicore_index"
+| rex field=definition ".*\((?&lt;index&gt;.*)\)"
+| table index
+| makemv delim="," index 
+| mvexpand index
+| dedup index
+| sort 0  index</query>
+        <earliest>-4h@m</earliest>
+        <latest>now</latest>
+      </search>
+      <default>guardicore</default>
+    </input>
+  </fieldset>
+  <row>
+    <panel>
+      <chart>
+        <title>Incidents Over Time by Type</title>
+        <search>
+          <query>index="$input_index$" $incident_type$ $severity$ $tag$| chart count(src) over _time by signature_id</query>
+          <earliest>$time_filter.earliest$</earliest>
+          <latest>$time_filter.latest$</latest>
+          <refresh>10m</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <search type="annotation">
+          <query>index="$input_index$" act="Publish segmentation policy revision" OR act="update * configuration" | eval annotation_label = act, annotation_color = "#000080"  </query>
+          <earliest>$time_filter.earliest$</earliest>
+          <latest>$time_filter.latest$</latest>
+        </search>
+        <option name="charting.axisLabelsX.majorLabelStyle.rotation">45</option>
+        <option name="charting.axisTitleX.visibility">collapsed</option>
+        <option name="charting.axisTitleY.visibility">collapsed</option>
+        <option name="charting.axisY.scale">linear</option>
+        <option name="charting.chart">line</option>
+        <option name="charting.chart.nullValueMode">zero</option>
+        <option name="charting.drilldown">none</option>
+        <option name="charting.fieldColors">{"Reveal Incident":#ca97e7,"Deception Incident": #00d0cb,"Integrity Incident": #ee72c9,"Network Scan Incident":#ffa3a3}</option>
+        <option name="charting.layout.splitSeries">0</option>
+        <option name="charting.legend.mode">standard</option>
+        <option name="charting.lineWidth">1</option>
+        <option name="height">248</option>
+        <option name="refresh.display">progressbar</option>
+      </chart>
+    </panel>
+    <panel>
+      <chart>
+        <title>Incidents Over Time by Severity</title>
+        <search>
+          <query>index="$input_index$" $incident_type$ $severity$ $tag$| chart count(src) over _time by vendor_severity</query>
+          <earliest>$time_filter.earliest$</earliest>
+          <latest>$time_filter.latest$</latest>
+        </search>
+        <search type="annotation">
+          <query>index="$input_index$" act="Publish segmentation policy revision" OR act="update * configuration" | eval annotation_label = act, annotation_color = "#000080"  </query>
+          <earliest>$time_filter.earliest$</earliest>
+          <latest>$time_filter.latest$</latest>
+        </search>
+        <option name="charting.axisLabelsX.majorLabelStyle.rotation">45</option>
+        <option name="charting.axisTitleX.visibility">collapsed</option>
+        <option name="charting.axisTitleY.visibility">collapsed</option>
+        <option name="charting.chart">line</option>
+        <option name="charting.chart.nullValueMode">zero</option>
+        <option name="charting.drilldown">none</option>
+        <option name="charting.fieldColors">{"high":#f64f4f,"medium":#ff7034,"low":#ffd049}</option>
+        <option name="charting.lineWidth">1</option>
+        <option name="refresh.display">progressbar</option>
+      </chart>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <chart>
+        <title>Top Attackers</title>
+        <search>
+          <query>index="$input_index$" $incident_type$ $severity$ $tag$| top $top_count$ src</query>
+          <earliest>$time_filter.earliest$</earliest>
+          <latest>$time_filter.latest$</latest>
+          <refresh>10m</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="charting.axisTitleX.visibility">collapsed</option>
+        <option name="charting.axisTitleY.text">Hit Count</option>
+        <option name="charting.chart">bar</option>
+        <option name="charting.drilldown">all</option>
+        <option name="charting.legend.placement">none</option>
+        <option name="charting.seriesColors">[#4180d8]</option>
+        <option name="refresh.display">progressbar</option>
+        <drilldown>
+          <eval token="inctype">if(like($form.incident_type$,"*"),"Reveal,Deception,Network Scan,FIM", $form.incident_type$)</eval>
+          <eval token="inctype">if(like($inctype$,"%FIM%"),replace($inctype$,"FIM", "Integrity"), $inctype$)</eval>
+          <eval token="inctype">if(like($inctype$,"%Incident%"),replace($inctype$," Incident", ""), $inctype$)</eval>
+          <eval token="sevtype">if(like($form.severity$,"*"),"High,Medium,Low", $form.severity$)</eval>
+          <eval token="tagfilter">if(like($form.tag$,"*"),"", $form.tag$)</eval>
+          <eval token="u">replace($row.url$, "https://", ""</eval>
+          <link target="_blank">
+            <![CDATA[https://$mgmt_ip$:$mgmt_port$/overview/incidents?source=ips:$click.value$/32&from_time=$from_time$&to_time=$to_time$&severity=$sevtype$&incident_type=$inctype$&tag=$tagfilter$]]>
+          </link>
+        </drilldown>
+      </chart>
+    </panel>
+    <panel>
+      <chart>
+        <title>Top Targets</title>
+        <search>
+          <query>index="$input_index$" $incident_type$ $severity$ $tag$| top $top_count$ dst</query>
+          <earliest>$time_filter.earliest$</earliest>
+          <latest>$time_filter.latest$</latest>
+          <refresh>10m</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="charting.axisTitleX.visibility">collapsed</option>
+        <option name="charting.axisTitleY.text">Hit Count</option>
+        <option name="charting.chart">bar</option>
+        <option name="charting.drilldown">all</option>
+        <option name="charting.legend.placement">none</option>
+        <option name="charting.seriesColors">[#4180d8]</option>
+        <option name="refresh.display">progressbar</option>
+        <drilldown>
+          <eval token="inctype">if(like($form.incident_type$,"*"),"Reveal,Deception,Network Scan,FIM", $form.incident_type$)</eval>
+          <eval token="inctype">if(like($inctype$,"%FIM%"),replace($inctype$,"FIM", "Integrity"), $inctype$)</eval>
+          <eval token="inctype">if(like($inctype$,"%Incident%"),replace($inctype$," Incident", ""), $inctype$)</eval>
+          <eval token="sevtype">if(like($form.severity$,"*"),"High,Medium,Low", $form.severity$)</eval>
+          <eval token="tagfilter">if(like($form.tag$,"*"),"", $form.tag$)</eval>
+          <eval token="u">replace($row.url$, "https://", ""</eval>
+          <link target="_blank">
+            <![CDATA[https://$mgmt_ip$:$mgmt_port$/overview/incidents?destination=ips:$click.value$/32&from_time=$from_time$&to_time=$to_time$&severity=$sevtype$&incident_type=$inctype$&tag=$tagfilter$]]>
+          </link>
+        </drilldown>
+      </chart>
+    </panel>
+    <panel>
+      <chart>
+        <title>Top Tags</title>
+        <search>
+          <query>index="$input_index$" $incident_type$ $severity$ $tag$ | makemv delim="," IncidentTags | top $top_count$ IncidentTags</query>
+          <earliest>$time_filter.earliest$</earliest>
+          <latest>$time_filter.latest$</latest>
+          <refresh>10m</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="charting.axisTitleX.visibility">collapsed</option>
+        <option name="charting.axisTitleY.text">Hit Count</option>
+        <option name="charting.chart">bar</option>
+        <option name="charting.drilldown">all</option>
+        <option name="charting.legend.placement">none</option>
+        <option name="charting.seriesColors">[#4180d8]</option>
+        <option name="refresh.display">progressbar</option>
+        <drilldown>
+          <eval token="inctype">if(like($form.incident_type$,"*"),"Reveal,Deception,Network Scan,FIM", $form.incident_type$)</eval>
+          <eval token="inctype">if(like($inctype$,"%FIM%"),replace($inctype$,"FIM", "Integrity"), $inctype$)</eval>
+          <eval token="inctype">if(like($inctype$,"%Incident%"),replace($inctype$," Incident", ""), $inctype$)</eval>
+          <eval token="sevtype">if(like($form.severity$,"*"),"High,Medium,Low", $form.severity$)</eval>
+          <eval token="tagfilter">if(like($form.tag$,"*"),"", $form.tag$)</eval>
+          <eval token="u">replace($row.url$, "https://", ""</eval>
+          <link target="_blank">
+            <![CDATA[https://$mgmt_ip$:$mgmt_port$/overview/incidents?tag=$click.value$&from_time=$from_time$&to_time=$to_time$&severity=$sevtype$&incident_type=$inctype$]]>
+          </link>
+        </drilldown>
+      </chart>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <chart>
+        <title>Top Reputation Alerts - Malicious IPs</title>
+        <search>
+          <query>index="$input_index$" reputation_alert request_type=IP | stats sum(occurrences) as count by requested_ip | sort $top_count$ -count</query>
+          <earliest>$time_filter.earliest$</earliest>
+          <latest>$time_filter.latest$</latest>
+          <refresh>10m</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="charting.axisTitleX.text">Requested IP</option>
+        <option name="charting.axisTitleY.visibility">collapsed</option>
+        <option name="charting.chart">bar</option>
+        <option name="charting.drilldown">all</option>
+        <option name="charting.legend.placement">none</option>
+        <option name="charting.seriesColors">[#75eccb]</option>
+        <option name="refresh.display">progressbar</option>
+        <drilldown>
+          <eval token="u">replace($row.url$, "https://", ""</eval>
+          <link target="_blank">
+            <![CDATA[https://$mgmt_ip$:$mgmt_port$/overview/activity/reputation-log?request_content=$click.value$&from_time=$from_time$&to_time=$to_time$]]>
+          </link>
+        </drilldown>
+      </chart>
+    </panel>
+    <panel>
+      <chart>
+        <title>Top Reputation Alerts - Malicious  Domain Requests</title>
+        <search>
+          <query>index="$input_index$" reputation_alert request_type=Domain | stats sum(occurrences) as count by requested_domain | sort $top_count$ -count</query>
+          <earliest>$time_filter.earliest$</earliest>
+          <latest>$time_filter.latest$</latest>
+          <refresh>10m</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="charting.axisTitleX.text">Requested Domain</option>
+        <option name="charting.axisTitleY.visibility">collapsed</option>
+        <option name="charting.chart">bar</option>
+        <option name="charting.drilldown">all</option>
+        <option name="charting.legend.placement">none</option>
+        <option name="charting.seriesColors">[#75eccb]</option>
+        <option name="refresh.display">progressbar</option>
+        <drilldown>
+          <eval token="u">replace($row.url$, "https://", ""</eval>
+          <link target="_blank">
+            <![CDATA[https://$mgmt_ip$:$mgmt_port$/overview/activity/reputation-log?request_content=$click.value$&from_time=$from_time$&to_time=$to_time$]]>
+          </link>
+        </drilldown>
+      </chart>
+    </panel>
+    <panel>
+      <chart>
+        <title>Top Reputation Alerts - Malicious  Files</title>
+        <search>
+          <query>index="$input_index$" reputation_alert request_type=File | stats sum(occurrences) as count by requested_path | sort $top_count$ -count</query>
+          <earliest>$time_filter.earliest$</earliest>
+          <latest>$time_filter.latest$</latest>
+          <refresh>10m</refresh>
+          <refreshType>delay</refreshType>
+        </search>
+        <option name="charting.axisTitleX.text">Hash</option>
+        <option name="charting.axisTitleY.visibility">collapsed</option>
+        <option name="charting.chart">bar</option>
+        <option name="charting.drilldown">all</option>
+        <option name="charting.legend.placement">none</option>
+        <option name="charting.seriesColors">[#75eccb]</option>
+        <option name="refresh.display">progressbar</option>
+        <drilldown>
+          <eval token="u">replace($row.url$, "https://", ""</eval>
+          <link target="_blank">
+            <![CDATA[https://$mgmt_ip$:$mgmt_port$/overview/activity/reputation-log?request_content=$click.value$&from_time=$from_time$&to_time=$to_time$]]>
+          </link>
+        </drilldown>
+      </chart>
+    </panel>
+  </row>
+</form>
