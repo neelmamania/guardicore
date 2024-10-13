@@ -2,7 +2,7 @@
     "meta": {
         "name": "TA-guardicore-add-on-for-splunk",
         "displayName": "Guardicore Add-on for Splunk",
-        "version": "2.1.6",
+        "version": "2.1.7",
         "restRoot": "TA_guardicore_add_on_for_splunk",
         "schemaVersion": "0.0.3"
     },
